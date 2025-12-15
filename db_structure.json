@@ -1,0 +1,51 @@
+{
+  "blades": {
+    "blade_id_1": {
+      "id": "blade_id_1",
+      "name": "Dragoon S",
+      "tier": "A"
+    }
+  },
+  "participants": {
+    "user_id_1": {
+      "id": "user_id_1",
+      "name": "Tyson",
+      "winrate": 75.5,
+      "totalMatches": 20,
+      "wins": 15
+    }
+  },
+  "leagues": {
+    "league_id_1": {
+      "id": "league_id_1",
+      "name": "World Championship 2024",
+      "participantIds": ["user_id_1", "user_id_2"],
+      "tournamentIds": ["tourn_id_1"]
+    }
+  },
+  "tournaments": {
+    "tourn_id_1": {
+      "id": "tourn_id_1",
+      "name": "Regional Qualifier",
+      "leagueId": "league_id_1",
+      "format": "Elimination",
+      "hasPlayoffs": true,
+      "status": "Active",
+      "participantIds": ["user_id_1", "user_id_2"]
+    }
+  },
+  "matches": {
+    "match_id_1": {
+      "id": "match_id_1",
+      "leagueId": "league_id_1",
+      "tournamentId": "tourn_id_1",
+      "participant1Id": "user_id_1",
+      "participant2Id": "user_id_2",
+      "winnerId": "user_id_1",
+      "isPlayed": true,
+      "phase": "group",
+      "participant1Blades": [{"bladeId": "blade_id_1", "name": "Dragoon S"}],
+      "participant2Blades": [{"bladeId": "blade_id_2", "name": "Dranzer F"}]
+    }
+  }
+}

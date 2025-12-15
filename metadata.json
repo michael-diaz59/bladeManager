@@ -1,0 +1,5 @@
+{
+  "name": "Gestor de Torneos Blade",
+  "description": "Sistema integral para gestionar torneos de Blades, ligas, participantes y estadísticas con generación avanzada de round-robin y playoffs.",
+  "requestFramePermissions": []
+}
