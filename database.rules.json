@@ -1,6 +1,12 @@
 {
   "rules": {
     ".read": true,
-    ".write": true
+    ".write": true,
+    "tournaments": {
+      ".indexOn": ["leagueId"]
+    },
+    "matches": {
+      ".indexOn": ["leagueId", "tournamentId"]
+    }
   }
 }
