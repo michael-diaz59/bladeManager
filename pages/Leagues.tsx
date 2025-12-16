@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { dbService } from '../services/db';
 import { League, Tournament } from '../types';
-import { Button, Card, Input } from '../components/UI';
+import { Button, Input } from '../components/atoms/index';
+import { Card, SectionHeader, InputField } from '../components/molecules/index';
 
 export const Leagues: React.FC = () => {
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -10,18 +11,15 @@ export const Leagues: React.FC = () => {
   const [tournaments, setTournaments] = useState<Record<string, Tournament[]>>({});
   const [newLeagueName, setNewLeagueName] = useState('');
   
-  // Date Filters
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
 
   const loadData = async () => {
     const lData = await dbService.getLeagues();
-    // Sort by date descending (newest first)
     const sortedLeagues = lData.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     setLeagues(sortedLeagues);
     setFilteredLeagues(sortedLeagues);
     
-    // Load tournaments for preview
     const tMap: Record<string, Tournament[]> = {};
     for (const l of sortedLeagues) {
         tMap[l.id] = await dbService.getTournaments(l.id);
@@ -33,32 +31,25 @@ export const Leagues: React.FC = () => {
     loadData();
   }, []);
 
-  // Filter Logic
   useEffect(() => {
     let result = leagues;
-
     if (filterStartDate) {
         const start = new Date(filterStartDate).getTime();
         result = result.filter(l => (l.createdAt || 0) >= start);
     }
-
     if (filterEndDate) {
-        // Set to end of day
         const end = new Date(filterEndDate);
         end.setHours(23, 59, 59, 999);
         const endTime = end.getTime();
         result = result.filter(l => (l.createdAt || 0) <= endTime);
     }
-
     setFilteredLeagues(result);
   }, [filterStartDate, filterEndDate, leagues]);
 
   const handleCreateLeague = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLeagueName.trim()) return;
-    
     const id = await dbService.createLeague(newLeagueName.trim());
-    
     if (id) {
         setNewLeagueName('');
         loadData();
@@ -67,20 +58,13 @@ export const Leagues: React.FC = () => {
     }
   };
 
-  const formatDate = (timestamp?: number) => {
-      if (!timestamp) return 'Fecha desconocida';
-      return new Date(timestamp).toLocaleDateString();
-  };
-
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-white">Ligas</h1>
-      </div>
+      <SectionHeader title="Ligas" />
 
       <Card title="Crear Nueva Liga" className="mb-6">
         <form onSubmit={handleCreateLeague} className="flex gap-4 items-end">
-            <Input 
+            <InputField 
                 label="Nombre de la Liga" 
                 value={newLeagueName} 
                 onChange={e => setNewLeagueName(e.target.value)} 
@@ -91,25 +75,10 @@ export const Leagues: React.FC = () => {
         </form>
       </Card>
       
-      {/* Filters Section */}
       <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-wrap gap-4 items-end">
-          <Input 
-              label="Filtrar desde" 
-              type="date" 
-              value={filterStartDate} 
-              onChange={e => setFilterStartDate(e.target.value)}
-              className="mb-0 w-40"
-          />
-          <Input 
-              label="Filtrar hasta" 
-              type="date" 
-              value={filterEndDate} 
-              onChange={e => setFilterEndDate(e.target.value)}
-              className="mb-0 w-40"
-          />
-          <div className="text-slate-400 text-sm pb-2">
-              Mostrando {filteredLeagues.length} ligas
-          </div>
+          <InputField label="Filtrar desde" type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="mb-0 w-40" />
+          <InputField label="Filtrar hasta" type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="mb-0 w-40" />
+          <div className="text-slate-400 text-sm pb-2">Mostrando {filteredLeagues.length} ligas</div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -119,8 +88,7 @@ export const Leagues: React.FC = () => {
                     Gestionar Liga &rarr;
                 </Link>
                 <div className="mt-2 text-sm text-slate-400">
-                    <p>Creada el: <span className="text-white">{formatDate(league.createdAt)}</span></p>
-                    <p>Participantes: <span className="text-white">{league.participantIds?.length || 0}</span></p>
+                    <p>Creada el: <span className="text-white">{new Date(league.createdAt).toLocaleDateString()}</span></p>
                     <p>Torneos: <span className="text-white">{tournaments[league.id]?.length || 0}</span></p>
                 </div>
                 
@@ -141,15 +109,9 @@ export const Leagues: React.FC = () => {
                             <li className="text-slate-500 text-sm italic">No hay torneos aún.</li>
                         )}
                     </ul>
-                    <div className="mt-4">
-                        <Link to={`/league/${league.id}`} className="inline-block w-full text-center py-2 border border-slate-600 rounded text-slate-300 hover:bg-slate-700 text-sm">
-                            + Nuevo Torneo / Duelo
-                        </Link>
-                    </div>
                 </div>
             </Card>
         ))}
-        {filteredLeagues.length === 0 && <p className="text-slate-400">No hay ligas en este rango de fechas.</p>}
       </div>
     </div>
   );

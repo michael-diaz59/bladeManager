@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { dbService } from '../services/db';
 import { Blade } from '../types';
-import { Button, Card, Input, Select } from '../components/UI';
+import { Button } from '../components/atoms/index';
+import { Card, InputField, SelectField } from '../components/molecules/index';
 
 export const Blades: React.FC = () => {
   const [blades, setBlades] = useState<Blade[]>([]);
@@ -39,14 +40,14 @@ export const Blades: React.FC = () => {
         <div className="md:col-span-1">
             <Card title="Registrar Blade">
                 <form onSubmit={handleAdd} className="space-y-4">
-                    <Input label="Nombre del Blade" value={name} onChange={e => setName(e.target.value)} required />
-                    <Select label="Tier (Nivel)" value={tier} onChange={e => setTier(e.target.value)}>
+                    <InputField label="Nombre del Blade" value={name} onChange={e => setName(e.target.value)} required />
+                    <SelectField label="Tier (Nivel)" value={tier} onChange={e => setTier(e.target.value)}>
                         <option value="S">Tier S</option>
                         <option value="A">Tier A</option>
                         <option value="B">Tier B</option>
                         <option value="C">Tier C</option>
                         <option value="D">Tier D</option>
-                    </Select>
+                    </SelectField>
                     <Button type="submit" className="w-full">Registrar</Button>
                 </form>
             </Card>

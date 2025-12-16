@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Card } from '../components/UI';
+import { Card } from '../components/molecules/index';
 
 export const Dashboard: React.FC = () => {
   return (

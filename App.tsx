@@ -1,6 +1,6 @@
 import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
-import { Layout } from './components/Layout';
+import { MainLayout } from './components/templates/index';
 import { Dashboard } from './pages/Dashboard';
 import { Participants } from './pages/Participants';
 import { Leagues } from './pages/Leagues';
@@ -12,7 +12,7 @@ import { Config } from './pages/Config';
 const App: React.FC = () => {
   return (
     <HashRouter>
-      <Layout>
+      <MainLayout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/participants" element={<Participants />} />
@@ -22,7 +22,7 @@ const App: React.FC = () => {
           <Route path="/tournament/:id" element={<TournamentManager />} />
           <Route path="/config" element={<Config />} />
         </Routes>
-      </Layout>
+      </MainLayout>
     </HashRouter>
   );
 };

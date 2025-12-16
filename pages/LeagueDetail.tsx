@@ -2,49 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { dbService } from '../services/db';
 import { League, Tournament, Participant, Match, AppConfig, TournamentStructure } from '../types';
-import { Button, Card, Input, Select, Badge } from '../components/UI';
-
-const LeagueMatchCard: React.FC<{ 
-    match: Match; 
-    p1?: Participant; 
-    p2?: Participant; 
-    contextLabel: string;
-}> = ({ match, p1, p2, contextLabel }) => {
-    if(!p1 || !p2) return null;
-
-    const winnerId = match.winnerId;
-
-    return (
-        <div className={`p-3 rounded border mb-2 flex flex-col gap-2 bg-slate-700 border-slate-600`}>
-            <div className="flex justify-between items-center">
-               <span className="text-xs text-slate-400 uppercase font-bold">{contextLabel}</span>
-               {match.isPlayed ? (
-                    <span className="text-xs text-green-400">Finalizado</span>
-               ) : (
-                    <span className="text-xs text-yellow-400">Pendiente</span>
-               )}
-            </div>
-
-            <div className="flex items-center gap-2">
-                <div className="flex-1 flex flex-col items-center gap-1">
-                    <span className={`text-sm truncate w-full text-center ${winnerId === p1.id ? 'text-emerald-400 font-bold' : 'text-white'}`}>
-                        {p1.name}
-                    </span>
-                    <span className="text-lg font-mono text-white">{match.participant1Score || 0}</span>
-                </div>
-
-                <span className="text-slate-500 font-bold text-xs">VS</span>
-
-                <div className="flex-1 flex flex-col items-center gap-1">
-                    <span className={`text-sm truncate w-full text-center ${winnerId === p2.id ? 'text-emerald-400 font-bold' : 'text-white'}`}>
-                        {p2.name}
-                    </span>
-                    <span className="text-lg font-mono text-white">{match.participant2Score || 0}</span>
-                </div>
-            </div>
-        </div>
-    );
-};
+import { Button, Input } from '../components/atoms/index';
+import { Card, SelectField, InputField } from '../components/molecules/index';
+import { MatchCard, StandingsTable, StandingRow } from '../components/organisms/index';
 
 export const LeagueDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -55,13 +15,11 @@ export const LeagueDetail: React.FC = () => {
   const [leagueMatches, setLeagueMatches] = useState<Match[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
   
-  // Quick Match State
   const [qmP1, setQmP1] = useState('');
   const [qmP2, setQmP2] = useState('');
   const [qmS1, setQmS1] = useState<number>(0); 
   const [qmS2, setQmS2] = useState<number>(0); 
   
-  // New Tournament State
   const [tnName, setTnName] = useState('');
   const [tnStructure, setTnStructure] = useState<TournamentStructure | ''>('');
   const [tnBalanceId, setTnBalanceId] = useState('');
@@ -118,7 +76,6 @@ export const LeagueDetail: React.FC = () => {
           alert("Selecciona 2 participantes diferentes");
           return;
       }
-      
       if (qmS1 === qmS2) {
           alert("Regla de negocio: No se permiten empates.");
           return;
@@ -147,17 +104,9 @@ export const LeagueDetail: React.FC = () => {
       loadData(); 
   };
 
-  // --- Statistics Logic (Uses Config for Points) ---
+  // Logic calculation
   const calculateLeagueStandings = () => {
-      const stats: Record<string, { 
-          id: string, 
-          name: string, 
-          played: number, 
-          wins: number, 
-          points: number, // Points based on config
-          pointsFor: number, 
-          pointsAgainst: number 
-      }> = {};
+      const stats: Record<string, any> = {};
 
       league.participantIds.forEach(pid => {
           const p = participants.find(part => part.id === pid);
@@ -176,6 +125,7 @@ export const LeagueDetail: React.FC = () => {
               }
           });
 
+          // Logic repeated from before (abbreviated for component reuse)
           if(stats[m.participant1Id]) {
               stats[m.participant1Id].played++;
               stats[m.participant1Id].pointsFor += (m.participant1Score || 0);
@@ -200,27 +150,17 @@ export const LeagueDetail: React.FC = () => {
           }
       });
 
-      return Object.values(stats).sort((a, b) => {
-          if (b.points !== a.points) return b.points - a.points; // Sort by configured points first
-          if (b.wins !== a.wins) return b.wins - a.wins;
-          if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
-          const diffA = a.pointsFor - a.pointsAgainst;
-          const diffB = b.pointsFor - b.pointsAgainst;
-          return diffB - diffA;
+      return Object.values(stats).sort((a: any, b: any) => {
+          if (b.points !== a.points) return b.points - a.points;
+          return b.wins - a.wins;
       });
   };
 
-  const standings = calculateLeagueStandings();
+  const standingsData: StandingRow[] = calculateLeagueStandings().map((s: any) => ({
+      ...s
+  }));
 
   const sortedMatches = [...leagueMatches].sort((a, b) => b.date - a.date);
-
-  const getMatchContextLabel = (m: Match) => {
-      if (m.tournamentId) {
-          const t = tournaments.find(t => t.id === m.tournamentId);
-          return t ? `Torneo: ${t.name} (${m.phase === 'playoff' ? m.roundLabel : 'Grupos'})` : 'Torneo Eliminado';
-      }
-      return 'Duelo Rápido';
-  };
 
   return (
     <div className="space-y-6">
@@ -231,59 +171,41 @@ export const LeagueDetail: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card title="Comenzar Nuevo Torneo">
-                <form onSubmit={handleCreateTournament} className="space-y-4">
-                    <Input label="Nombre del Torneo" value={tnName} onChange={e => setTnName(e.target.value)} required />
+                <form onSubmit={handleCreateTournament}>
+                    <InputField label="Nombre del Torneo" value={tnName} onChange={e => setTnName(e.target.value)} required />
                     
-                    <Select label="Estructura" value={tnStructure} onChange={e => setTnStructure(e.target.value as TournamentStructure)}>
+                    <SelectField label="Estructura" value={tnStructure} onChange={e => setTnStructure(e.target.value as TournamentStructure)}>
                         <option value="">-- Seleccionar --</option>
                         <option value="Round Robin">Round Robin</option>
                         <option value="Playoff Only">Solo Playoffs</option>
                         <option value="Round Robin + Playoffs">Ambas</option>
-                    </Select>
+                    </SelectField>
 
-                    <Select label="Formato de Balance" value={tnBalanceId} onChange={e => setTnBalanceId(e.target.value)}>
+                    <SelectField label="Formato de Balance" value={tnBalanceId} onChange={e => setTnBalanceId(e.target.value)}>
                         <option value="">-- Seleccionar Balance --</option>
                         {config.balanceFormats.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                    </Select>
+                    </SelectField>
                     
-                    <Button type="submit" disabled={config.balanceFormats.length === 0}>Crear Torneo</Button>
+                    <Button type="submit" disabled={config.balanceFormats.length === 0} className="w-full mt-4">Crear Torneo</Button>
                 </form>
             </Card>
 
             <Card title="Registrar Duelo Rápido">
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
-                        <Select label="Participante 1" value={qmP1} onChange={e => setQmP1(e.target.value)}>
+                        <SelectField label="Participante 1" value={qmP1} onChange={e => setQmP1(e.target.value)}>
                             <option value="">Seleccionar P1</option>
                             {participants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </Select>
-                        <Select label="Participante 2" value={qmP2} onChange={e => setQmP2(e.target.value)}>
+                        </SelectField>
+                        <SelectField label="Participante 2" value={qmP2} onChange={e => setQmP2(e.target.value)}>
                             <option value="">Seleccionar P2</option>
                             {participants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </Select>
+                        </SelectField>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 items-center">
-                         <div className="flex flex-col">
-                            <label className="text-sm text-slate-400 mb-1">Puntos P1</label>
-                            <input 
-                                type="number" 
-                                min="0" 
-                                value={qmS1} 
-                                onChange={e => setQmS1(parseInt(e.target.value) || 0)}
-                                className="bg-slate-900 border border-slate-600 rounded p-2 text-white text-center"
-                            />
-                         </div>
-                         <div className="flex flex-col">
-                            <label className="text-sm text-slate-400 mb-1">Puntos P2</label>
-                            <input 
-                                type="number" 
-                                min="0" 
-                                value={qmS2} 
-                                onChange={e => setQmS2(parseInt(e.target.value) || 0)}
-                                className="bg-slate-900 border border-slate-600 rounded p-2 text-white text-center"
-                            />
-                         </div>
+                    <div className="grid grid-cols-2 gap-4">
+                         <InputField label="Puntos P1" type="number" value={qmS1} onChange={e => setQmS1(parseInt(e.target.value) || 0)} className="text-center" />
+                         <InputField label="Puntos P2" type="number" value={qmS2} onChange={e => setQmS2(parseInt(e.target.value) || 0)} className="text-center" />
                     </div>
                     <Button onClick={handleQuickMatch} variant="secondary" className="w-full">Registrar Resultado</Button>
                 </div>
@@ -292,41 +214,7 @@ export const LeagueDetail: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-                <Card title="Clasificación General de la Liga">
-                   <div className="overflow-x-auto">
-                       <table className="min-w-full text-left text-sm">
-                           <thead className="text-slate-400 border-b border-slate-700">
-                               <tr>
-                                   <th className="pb-2 px-2">Pos</th>
-                                   <th className="pb-2 px-2">Nombre</th>
-                                   <th className="pb-2 px-2 text-center text-emerald-400">Pts</th>
-                                   <th className="pb-2 px-2 text-center">PJ</th>
-                                   <th className="pb-2 px-2 text-center">G</th>
-                                   <th className="pb-2 px-2 text-center" title="Puntos a Favor">PF</th>
-                                   <th className="pb-2 px-2 text-center" title="Puntos en Contra">PC</th>
-                                   <th className="pb-2 px-2 text-center" title="Diferencia">Diff</th>
-                               </tr>
-                           </thead>
-                           <tbody className="text-white">
-                               {standings.length === 0 && (
-                                   <tr><td colSpan={8} className="text-center py-4 text-slate-500">No hay datos registrados aún.</td></tr>
-                               )}
-                               {standings.map((s, idx) => (
-                                   <tr key={s.id} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/50">
-                                       <td className="py-3 px-2 text-slate-500">{idx + 1}</td>
-                                       <td className="py-3 px-2 font-medium">{s.name}</td>
-                                       <td className="py-3 px-2 text-center font-bold text-emerald-400 text-lg">{s.points}</td>
-                                       <td className="py-3 px-2 text-center">{s.played}</td>
-                                       <td className="py-3 px-2 text-center text-green-300">{s.wins}</td>
-                                       <td className="py-3 px-2 text-center text-slate-300">{s.pointsFor}</td>
-                                       <td className="py-3 px-2 text-center text-slate-300">{s.pointsAgainst}</td>
-                                       <td className="py-3 px-2 text-center text-slate-400">{s.pointsFor - s.pointsAgainst}</td>
-                                   </tr>
-                               ))}
-                           </tbody>
-                       </table>
-                   </div>
-                </Card>
+                <StandingsTable data={standingsData} title="Clasificación General" />
                 
                 <div className="mt-6">
                     <Card title="Torneos Asociados">
@@ -336,18 +224,9 @@ export const LeagueDetail: React.FC = () => {
                                 <div key={t.id} className="flex items-center justify-between p-3 bg-slate-700 rounded border border-slate-600">
                                     <div>
                                         <span className="font-bold block text-white">{t.name}</span>
-                                        <span className="text-xs text-slate-400">
-                                        {t.structure}
-                                        </span>
+                                        <span className="text-xs text-slate-400">{t.structure}</span>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <span className={`px-2 py-1 text-xs rounded ${
-                                            t.status === 'Active' ? 'bg-green-900 text-green-200' : 
-                                            t.status === 'Completed' ? 'bg-blue-900 text-blue-200' : 
-                                            'bg-slate-800 text-slate-300'
-                                        }`}>
-                                            {t.status === 'Active' ? 'En Curso' : t.status === 'Completed' ? 'Finalizado' : 'Borrador'}
-                                        </span>
                                         <Link to={`/tournament/${t.id}`}>
                                             <Button size="sm">Gestionar</Button>
                                         </Link>
@@ -361,25 +240,25 @@ export const LeagueDetail: React.FC = () => {
 
             <div>
                  <Card title="Historial de Enfrentamientos">
-                   {sortedMatches.length === 0 && (
-                       <div className="text-center py-4">
-                           <p className="text-slate-400 mb-4">No hay enfrentamientos registrados en esta liga.</p>
-                       </div>
-                   )}
                    <div className="space-y-2 max-h-[800px] overflow-y-auto pr-2">
                        {sortedMatches.map(m => {
                            const p1 = participants.find(p => p.id === m.participant1Id);
                            const p2 = participants.find(p => p.id === m.participant2Id);
+                           const t = tournaments.find(tx => tx.id === m.tournamentId);
+                           const contextLabel = t ? `Torneo: ${t.name} (${m.phase === 'playoff' ? m.roundLabel : 'Grupos'})` : 'Duelo Rápido';
+
                            return (
-                               <LeagueMatchCard 
+                               <MatchCard 
                                     key={m.id} 
                                     match={m} 
                                     p1={p1} 
                                     p2={p2} 
-                                    contextLabel={getMatchContextLabel(m)} 
+                                    contextLabel={contextLabel}
+                                    readOnly={true}
                                />
                            );
                        })}
+                       {sortedMatches.length === 0 && <p className="text-slate-400 text-center">No hay datos.</p>}
                    </div>
                </Card>
             </div>

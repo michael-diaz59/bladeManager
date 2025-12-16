@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { dbService } from '../services/db';
 import { AppConfig } from '../types';
-import { Button, Card, Input } from '../components/UI';
+import { Button, Input } from '../components/atoms/index';
+import { Card, SectionHeader } from '../components/molecules/index';
 
 export const Config: React.FC = () => {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -47,7 +48,7 @@ export const Config: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Configuración del Sistema</h1>
+      <SectionHeader title="Configuración del Sistema" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card title="Sistema de Puntuación">
@@ -92,7 +93,7 @@ export const Config: React.FC = () => {
                     value={newBalanceFormat} 
                     onChange={e => setNewBalanceFormat(e.target.value)} 
                     placeholder="Nuevo Formato (ej: Standard, Limited)" 
-                    className="mb-0 flex-1"
+                    className="flex-1"
                   />
                   <Button type="submit">Añadir</Button>
               </form>
