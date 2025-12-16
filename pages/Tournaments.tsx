@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { dbService } from '../services/db';
 import { Tournament, League, BalanceFormat, TournamentStructure } from '../types';
 import { Button, Input } from '../components/atoms/index';
-import { Card, SectionHeader, InputField, SelectField } from '../components/molecules/index';
+import { Card, SectionHeader, InputField, SelectField, Modal } from '../components/molecules/index';
 import { TournamentListItem } from '../components/organisms/index';
 
 export const Tournaments: React.FC = () => {
@@ -20,6 +20,10 @@ export const Tournaments: React.FC = () => {
 
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+
+  // Delete Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [tournamentToDelete, setTournamentToDelete] = useState<string | null>(null);
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => {
@@ -59,6 +63,19 @@ export const Tournaments: React.FC = () => {
 
     if (tId) navigate(`/tournament/${tId}`);
     else alert("Ya existe un Torneo con ese nombre.");
+  };
+
+  const confirmDelete = (id: string) => {
+      setTournamentToDelete(id);
+      setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteTournament = async () => {
+      if (!tournamentToDelete) return;
+      await dbService.deleteTournament(tournamentToDelete);
+      setIsDeleteModalOpen(false);
+      setTournamentToDelete(null);
+      loadData();
   };
 
   const getLeagueName = (id?: string) => leagues.find(l => l.id === id)?.name;
@@ -109,10 +126,27 @@ export const Tournaments: React.FC = () => {
                 key={t.id} 
                 tournament={t} 
                 leagueName={getLeagueName(t.leagueId)} 
-                balanceName={getBalanceName(t.balanceFormatId)} 
+                balanceName={getBalanceName(t.balanceFormatId)}
+                onDelete={confirmDelete}
             />
         ))}
       </div>
+
+      {isDeleteModalOpen && (
+          <Modal title="Eliminar Torneo" onClose={() => setIsDeleteModalOpen(false)}>
+              <div className="space-y-4">
+                  <p className="text-slate-300">
+                      ¿Estás seguro de que deseas eliminar este torneo?
+                  </p>
+                  <p className="text-sm text-red-400 bg-red-900/20 p-2 rounded border border-red-900">
+                      Advertencia: Todos los partidos y estadísticas asociados a este torneo se eliminarán permanentemente.
+                  </p>
+                  <div className="flex justify-end pt-2">
+                      <Button variant="danger" onClick={handleDeleteTournament}>Confirmar Eliminación</Button>
+                  </div>
+              </div>
+          </Modal>
+      )}
     </div>
   );
 };

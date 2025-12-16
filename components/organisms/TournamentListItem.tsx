@@ -8,7 +8,8 @@ export const TournamentListItem: React.FC<{
     tournament: Tournament; 
     leagueName?: string; 
     balanceName?: string; 
-}> = ({ tournament, leagueName, balanceName }) => (
+    onDelete?: (id: string) => void;
+}> = ({ tournament, leagueName, balanceName, onDelete }) => (
     <Card className="relative flex justify-between items-center">
         <div>
             <h3 className="text-lg font-bold text-white">
@@ -31,9 +32,16 @@ export const TournamentListItem: React.FC<{
             }>
                 {tournament.status === 'Active' ? 'En Curso' : tournament.status === 'Completed' ? 'Finalizado' : 'Borrador'}
             </Badge>
-            <Link to={`/tournament/${tournament.id}`}>
-                <Button size="sm">Gestionar</Button>
-            </Link>
+            <div className="flex gap-2">
+                {onDelete && (
+                    <Button size="sm" variant="danger" onClick={() => onDelete(tournament.id)}>
+                        Eliminar
+                    </Button>
+                )}
+                <Link to={`/tournament/${tournament.id}`}>
+                    <Button size="sm">Gestionar</Button>
+                </Link>
+            </div>
         </div>
     </Card>
 );

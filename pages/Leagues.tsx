@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { dbService } from '../services/db';
 import { League, Tournament } from '../types';
 import { Button, Input } from '../components/atoms/index';
-import { Card, SectionHeader, InputField } from '../components/molecules/index';
+import { Card, SectionHeader, InputField, Modal } from '../components/molecules/index';
 
 export const Leagues: React.FC = () => {
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -13,6 +13,10 @@ export const Leagues: React.FC = () => {
   
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+
+  // Delete Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [leagueToDelete, setLeagueToDelete] = useState<League | null>(null);
 
   const loadData = async () => {
     const lData = await dbService.getLeagues();
@@ -58,6 +62,19 @@ export const Leagues: React.FC = () => {
     }
   };
 
+  const confirmDelete = (league: League) => {
+      setLeagueToDelete(league);
+      setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteLeague = async () => {
+      if (!leagueToDelete) return;
+      await dbService.deleteLeague(leagueToDelete.id);
+      setIsDeleteModalOpen(false);
+      setLeagueToDelete(null);
+      loadData();
+  };
+
   return (
     <div className="space-y-6">
       <SectionHeader title="Ligas" />
@@ -83,10 +100,16 @@ export const Leagues: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {filteredLeagues.map(league => (
-            <Card key={league.id} title={league.name} className="relative">
-                 <Link to={`/league/${league.id}`} className="absolute top-4 right-4 text-emerald-400 hover:text-emerald-300 text-sm font-medium">
-                    Gestionar Liga &rarr;
-                </Link>
+            <Card key={league.id} title={league.name} className="relative pb-12">
+                 <div className="absolute top-4 right-4 flex gap-2">
+                    <Button size="sm" variant="danger" onClick={() => confirmDelete(league)}>
+                        Eliminar
+                    </Button>
+                    <Link to={`/league/${league.id}`}>
+                        <Button size="sm" variant="secondary">Gestionar &rarr;</Button>
+                    </Link>
+                 </div>
+
                 <div className="mt-2 text-sm text-slate-400">
                     <p>Creada el: <span className="text-white">{new Date(league.createdAt).toLocaleDateString()}</span></p>
                     <p>Torneos: <span className="text-white">{tournaments[league.id]?.length || 0}</span></p>
@@ -113,6 +136,22 @@ export const Leagues: React.FC = () => {
             </Card>
         ))}
       </div>
+
+      {isDeleteModalOpen && leagueToDelete && (
+          <Modal title="Eliminar Liga" onClose={() => setIsDeleteModalOpen(false)}>
+              <div className="space-y-4">
+                  <p className="text-slate-300">
+                      ¿Estás seguro de que deseas eliminar la liga <strong className="text-white">{leagueToDelete.name}</strong>?
+                  </p>
+                  <p className="text-sm text-red-400 bg-red-900/20 p-2 rounded border border-red-900">
+                      Advertencia: Los torneos asociados se desvincularán y los partidos quedarán como independientes, pero la estructura de la liga se perderá permanentemente.
+                  </p>
+                  <div className="flex justify-end pt-2">
+                      <Button variant="danger" onClick={handleDeleteLeague}>Confirmar Eliminación</Button>
+                  </div>
+              </div>
+          </Modal>
+      )}
     </div>
   );
 };

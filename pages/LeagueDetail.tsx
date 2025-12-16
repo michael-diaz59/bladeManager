@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { dbService } from '../services/db';
 import { League, Tournament, Participant, Match, AppConfig, TournamentStructure } from '../types';
 import { Button, Input } from '../components/atoms/index';
-import { Card, SelectField, InputField } from '../components/molecules/index';
+import { Card, SelectField, InputField, Modal } from '../components/molecules/index';
 import { MatchCard, StandingsTable, StandingRow } from '../components/organisms/index';
 
 export const LeagueDetail: React.FC = () => {
@@ -23,6 +23,10 @@ export const LeagueDetail: React.FC = () => {
   const [tnName, setTnName] = useState('');
   const [tnStructure, setTnStructure] = useState<TournamentStructure | ''>('');
   const [tnBalanceId, setTnBalanceId] = useState('');
+
+  // Delete Modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [tournamentToDelete, setTournamentToDelete] = useState<string | null>(null);
 
   const loadData = async () => {
     if (id) {
@@ -104,6 +108,19 @@ export const LeagueDetail: React.FC = () => {
       loadData(); 
   };
 
+  const confirmDeleteTournament = (tId: string) => {
+      setTournamentToDelete(tId);
+      setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteTournament = async () => {
+      if (!tournamentToDelete) return;
+      await dbService.deleteTournament(tournamentToDelete);
+      setIsDeleteModalOpen(false);
+      setTournamentToDelete(null);
+      loadData();
+  };
+
   // Logic calculation
   const calculateLeagueStandings = () => {
       const stats: Record<string, any> = {};
@@ -125,7 +142,6 @@ export const LeagueDetail: React.FC = () => {
               }
           });
 
-          // Logic repeated from before (abbreviated for component reuse)
           if(stats[m.participant1Id]) {
               stats[m.participant1Id].played++;
               stats[m.participant1Id].pointsFor += (m.participant1Score || 0);
@@ -227,6 +243,7 @@ export const LeagueDetail: React.FC = () => {
                                         <span className="text-xs text-slate-400">{t.structure}</span>
                                     </div>
                                     <div className="flex items-center gap-4">
+                                        <Button size="sm" variant="danger" onClick={() => confirmDeleteTournament(t.id)}>Eliminar</Button>
                                         <Link to={`/tournament/${t.id}`}>
                                             <Button size="sm">Gestionar</Button>
                                         </Link>
@@ -263,6 +280,22 @@ export const LeagueDetail: React.FC = () => {
                </Card>
             </div>
         </div>
+
+        {isDeleteModalOpen && (
+          <Modal title="Eliminar Torneo de Liga" onClose={() => setIsDeleteModalOpen(false)}>
+              <div className="space-y-4">
+                  <p className="text-slate-300">
+                      ¿Estás seguro de que deseas eliminar este torneo de la liga?
+                  </p>
+                  <p className="text-sm text-red-400 bg-red-900/20 p-2 rounded border border-red-900">
+                      Advertencia: El torneo y todos sus resultados serán eliminados permanentemente.
+                  </p>
+                  <div className="flex justify-end pt-2">
+                      <Button variant="danger" onClick={handleDeleteTournament}>Confirmar Eliminación</Button>
+                  </div>
+              </div>
+          </Modal>
+      )}
     </div>
   );
 };

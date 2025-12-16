@@ -153,6 +153,31 @@ export const dbService = {
     return id;
   },
 
+  async deleteLeague(id: string): Promise<void> {
+      const db = getLocalDB();
+      const league = db.leagues[id];
+      if (!league) return;
+
+      // 1. Unlink tournaments (set their leagueId to undefined)
+      if (league.tournamentIds) {
+          league.tournamentIds.forEach(tid => {
+              if (db.tournaments[tid]) {
+                  delete db.tournaments[tid].leagueId;
+              }
+          });
+      }
+
+      // 2. Unlink matches (set their leagueId to undefined so stats remain)
+      const leagueMatches = Object.values(db.matches).filter(m => m.leagueId === id);
+      leagueMatches.forEach(m => {
+          delete m.leagueId;
+      });
+
+      // 3. Delete the league
+      delete db.leagues[id];
+      saveLocalDB(db);
+  },
+
   // --- Tournaments ---
   async getTournaments(leagueId?: string): Promise<Tournament[]> {
     const db = getLocalDB();
@@ -187,6 +212,24 @@ export const dbService = {
     
     saveLocalDB(db);
     return id;
+  },
+
+  async deleteTournament(id: string): Promise<void> {
+      const db = getLocalDB();
+      
+      // 1. Remove from League if associated
+      const t = db.tournaments[id];
+      if (t && t.leagueId && db.leagues[t.leagueId]) {
+          db.leagues[t.leagueId].tournamentIds = db.leagues[t.leagueId].tournamentIds.filter(tid => tid !== id);
+      }
+
+      // 2. Delete matches associated with this tournament
+      const matchesToDelete = Object.values(db.matches).filter(m => m.tournamentId === id);
+      matchesToDelete.forEach(m => delete db.matches[m.id]);
+
+      // 3. Delete the tournament
+      delete db.tournaments[id];
+      saveLocalDB(db);
   },
 
   async updateTournamentParticipants(tournamentId: string, participantIds: string[]): Promise<void> {

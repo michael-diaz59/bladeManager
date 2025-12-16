@@ -155,11 +155,22 @@ export const TournamentManager: React.FC = () => {
   };
 
   const calculateStandings = () => {
-      if (!config) return [];
+      if (!config || !tournament) return [];
       const stats: Record<string, any> = {};
       participants.forEach(p => { stats[p.id] = { id: p.id, name: p.name, played: 0, wins: 0, points: 0, pointsFor: 0, pointsAgainst: 0 }; });
       
-      matches.filter(m => m.phase === 'group' && m.isPlayed).forEach(m => {
+      const isPlayoffOnly = tournament.structure === 'Playoff Only';
+      
+      // Filter matches based on structure:
+      // - Playoff Only: Include all played matches (likely all playoffs).
+      // - Others: Only include Group phase matches for the standings table.
+      const relevantMatches = matches.filter(m => {
+          if (!m.isPlayed) return false;
+          if (isPlayoffOnly) return true;
+          return m.phase === 'group';
+      });
+
+      relevantMatches.forEach(m => {
           if(stats[m.participant1Id]) {
               stats[m.participant1Id].played++;
               stats[m.participant1Id].pointsFor += (m.participant1Score || 0);
@@ -192,9 +203,18 @@ export const TournamentManager: React.FC = () => {
   const generatePlayoffs = async () => {
       if(!tournament || !playoffType) return;
       if (!window.confirm("¿Generar Playoffs?")) return;
-      let qualifiers: {id: string}[] = tournament.structure === 'Playoff Only' 
-        ? [...participants].sort(() => Math.random() - 0.5).map(p => ({id: p.id}))
-        : calculateStandings();
+      
+      // If Playoff Only, we use random order or manual seed if we had one, but here just random
+      // If Groups, we use standings.
+      let qualifiers: {id: string}[] = [];
+      
+      if (tournament.structure === 'Playoff Only') {
+          // Check if we already have stats (maybe manually played matches?), otherwise random
+          // For simplicity, just take all participants. Random shuffle could be added.
+          qualifiers = [...participants].map(p => ({id: p.id}));
+      } else {
+          qualifiers = calculateStandings();
+      }
 
       let topN = 0;
       if(playoffType === 'Final') topN = 2;
@@ -204,6 +224,12 @@ export const TournamentManager: React.FC = () => {
 
       if (qualifiers.length < topN) return alert(`Mínimo ${topN} participantes.`);
       const selected = qualifiers.slice(0, topN);
+      
+      // Shuffle if it's Playoff Only to randomize pairings if they haven't played
+      if (tournament.structure === 'Playoff Only') {
+          selected.sort(() => Math.random() - 0.5);
+      }
+
       const newMatches: Omit<Match, 'id'>[] = [];
       for(let i=0; i < topN / 2; i++) {
           newMatches.push({
@@ -260,7 +286,10 @@ export const TournamentManager: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-               {isRoundRobin && <StandingsTable data={standingsData} title="Clasificación (Fase de Grupos)" />}
+               <StandingsTable 
+                   data={standingsData} 
+                   title={isRoundRobin ? "Clasificación (Fase de Grupos)" : "Lista de Participantes"} 
+               />
 
                <Card title="Enfrentamientos">
                    <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2">
