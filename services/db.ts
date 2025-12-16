@@ -44,6 +44,29 @@ const saveLocalDB = (data: DatabaseSchema) => {
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// --- Internal Helper for Stats ---
+const recalculateParticipantStats = (participantId: string) => {
+    const db = getLocalDB();
+    const p = db.participants[participantId];
+    if (!p) return;
+
+    // Find all played matches involving this participant
+    const matches = Object.values(db.matches).filter(m => 
+        m.isPlayed && (m.participant1Id === participantId || m.participant2Id === participantId)
+    );
+
+    const totalMatches = matches.length;
+    const wins = matches.filter(m => m.winnerId === participantId).length;
+    const winrate = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0;
+
+    // Update in memory and save
+    db.participants[participantId].totalMatches = totalMatches;
+    db.participants[participantId].wins = wins;
+    db.participants[participantId].winrate = winrate;
+    
+    saveLocalDB(db);
+};
+
 // SERVICE METHODS
 
 export const dbService = {
@@ -160,6 +183,12 @@ export const dbService = {
     }
 
     saveLocalDB(db);
+
+    // If the match is created as 'played' (Quick Match), update stats immediately
+    if (matchData.isPlayed) {
+        recalculateParticipantStats(matchData.participant1Id);
+        recalculateParticipantStats(matchData.participant2Id);
+    }
   },
 
   async resolveMatch(matchId: string, p1Score: number, p2Score: number): Promise<void> {
@@ -177,6 +206,10 @@ export const dbService = {
     match.isPlayed = true;
 
     saveLocalDB(db);
+
+    // Update Stats for both participants
+    recalculateParticipantStats(match.participant1Id);
+    recalculateParticipantStats(match.participant2Id);
   },
 
   async bulkCreateMatches(matches: Omit<Match, 'id'>[]): Promise<void> {
@@ -188,13 +221,11 @@ export const dbService = {
     saveLocalDB(db);
   },
 
-  // New method to delete a specific list of matches
   async deleteMatches(matchIds: string[]): Promise<void> {
     const db = getLocalDB();
     matchIds.forEach(id => {
         delete db.matches[id];
     });
     saveLocalDB(db);
-    // Firebase implementation would loop and call remove(ref(db, `matches/${id}`))
   }
 };

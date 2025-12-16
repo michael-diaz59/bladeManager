@@ -15,7 +15,8 @@ export const LeagueDetail: React.FC = () => {
   // Quick Match State
   const [qmP1, setQmP1] = useState('');
   const [qmP2, setQmP2] = useState('');
-  const [qmWinner, setQmWinner] = useState<string>('');
+  const [qmS1, setQmS1] = useState<number>(0); // Score 1
+  const [qmS2, setQmS2] = useState<number>(0); // Score 2
   
   // New Tournament State
   const [tnName, setTnName] = useState('');
@@ -54,22 +55,33 @@ export const LeagueDetail: React.FC = () => {
       }
       
       const mockBlades: SelectedBlade[] = blades.slice(0, 1).map(b => ({ bladeId: b.id, name: b.name }));
+      
+      // Determine winner based on score
+      let winnerId: string | null = null;
+      if (qmS1 > qmS2) winnerId = qmP1;
+      else if (qmS2 > qmS1) winnerId = qmP2;
 
       await dbService.createMatch({
           leagueId: league.id,
           participant1Id: qmP1,
           participant2Id: qmP2,
+          participant1Score: qmS1,
+          participant2Score: qmS2,
           participant1Blades: mockBlades,
           participant2Blades: mockBlades,
-          winnerId: qmWinner || null,
-          isPlayed: !!qmWinner,
+          winnerId: winnerId,
+          isPlayed: true, // Quick matches are always immediately played
           date: Date.now()
       });
 
-      alert("Duelo registrado!");
-      setQmWinner('');
+      alert("Duelo registrado y estadísticas actualizadas!");
+      // Reset form
       setQmP1('');
       setQmP2('');
+      setQmS1(0);
+      setQmS2(0);
+      // Reload participants to refresh stats if shown somewhere
+      dbService.getParticipants().then(setParticipants);
   };
 
   return (
@@ -116,13 +128,32 @@ export const LeagueDetail: React.FC = () => {
                             {participants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </Select>
                     </div>
-                    <Select label="Ganador (Opcional - dejar vacío si es para agendar)" value={qmWinner} onChange={e => setQmWinner(e.target.value)}>
-                        <option value="">No Jugado Aún</option>
-                        {qmP1 && <option value={qmP1}>Gana P1</option>}
-                        {qmP2 && <option value={qmP2}>Gana P2</option>}
-                    </Select>
-                    <p className="text-xs text-slate-500">* Los participantes que no estén en la liga serán añadidos automáticamente.</p>
-                    <Button onClick={handleQuickMatch} variant="secondary">Registrar Duelo</Button>
+
+                    <div className="grid grid-cols-2 gap-4 items-center">
+                         <div className="flex flex-col">
+                            <label className="text-sm text-slate-400 mb-1">Puntos P1</label>
+                            <input 
+                                type="number" 
+                                min="0" 
+                                value={qmS1} 
+                                onChange={e => setQmS1(parseInt(e.target.value) || 0)}
+                                className="bg-slate-900 border border-slate-600 rounded p-2 text-white text-center"
+                            />
+                         </div>
+                         <div className="flex flex-col">
+                            <label className="text-sm text-slate-400 mb-1">Puntos P2</label>
+                            <input 
+                                type="number" 
+                                min="0" 
+                                value={qmS2} 
+                                onChange={e => setQmS2(parseInt(e.target.value) || 0)}
+                                className="bg-slate-900 border border-slate-600 rounded p-2 text-white text-center"
+                            />
+                         </div>
+                    </div>
+
+                    <p className="text-xs text-slate-500">* El ganador se calcula automáticamente por puntos. Los participantes se añaden a la liga.</p>
+                    <Button onClick={handleQuickMatch} variant="secondary" className="w-full">Registrar Resultado</Button>
                 </div>
             </Card>
         </div>
