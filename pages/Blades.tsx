@@ -20,9 +20,15 @@ export const Blades: React.FC = () => {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    await dbService.addBlade(name.trim(), tier);
-    setName('');
-    loadData();
+    
+    const result = await dbService.addBlade(name.trim(), tier);
+    
+    if (result) {
+        setName('');
+        loadData();
+    } else {
+        alert("Ya existe un Blade con ese nombre.");
+    }
   };
 
   return (

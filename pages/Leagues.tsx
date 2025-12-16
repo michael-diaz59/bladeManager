@@ -6,16 +6,24 @@ import { Button, Card, Input } from '../components/UI';
 
 export const Leagues: React.FC = () => {
   const [leagues, setLeagues] = useState<League[]>([]);
+  const [filteredLeagues, setFilteredLeagues] = useState<League[]>([]);
   const [tournaments, setTournaments] = useState<Record<string, Tournament[]>>({});
   const [newLeagueName, setNewLeagueName] = useState('');
+  
+  // Date Filters
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
 
   const loadData = async () => {
     const lData = await dbService.getLeagues();
-    setLeagues(lData);
+    // Sort by date descending (newest first)
+    const sortedLeagues = lData.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    setLeagues(sortedLeagues);
+    setFilteredLeagues(sortedLeagues);
     
     // Load tournaments for preview
     const tMap: Record<string, Tournament[]> = {};
-    for (const l of lData) {
+    for (const l of sortedLeagues) {
         tMap[l.id] = await dbService.getTournaments(l.id);
     }
     setTournaments(tMap);
@@ -25,12 +33,43 @@ export const Leagues: React.FC = () => {
     loadData();
   }, []);
 
+  // Filter Logic
+  useEffect(() => {
+    let result = leagues;
+
+    if (filterStartDate) {
+        const start = new Date(filterStartDate).getTime();
+        result = result.filter(l => (l.createdAt || 0) >= start);
+    }
+
+    if (filterEndDate) {
+        // Set to end of day
+        const end = new Date(filterEndDate);
+        end.setHours(23, 59, 59, 999);
+        const endTime = end.getTime();
+        result = result.filter(l => (l.createdAt || 0) <= endTime);
+    }
+
+    setFilteredLeagues(result);
+  }, [filterStartDate, filterEndDate, leagues]);
+
   const handleCreateLeague = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLeagueName.trim()) return;
-    await dbService.createLeague(newLeagueName.trim());
-    setNewLeagueName('');
-    loadData();
+    
+    const id = await dbService.createLeague(newLeagueName.trim());
+    
+    if (id) {
+        setNewLeagueName('');
+        loadData();
+    } else {
+        alert("Ya existe una Liga con ese nombre.");
+    }
+  };
+
+  const formatDate = (timestamp?: number) => {
+      if (!timestamp) return 'Fecha desconocida';
+      return new Date(timestamp).toLocaleDateString();
   };
 
   return (
@@ -51,14 +90,36 @@ export const Leagues: React.FC = () => {
             <Button type="submit">Crear Liga</Button>
         </form>
       </Card>
+      
+      {/* Filters Section */}
+      <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-wrap gap-4 items-end">
+          <Input 
+              label="Filtrar desde" 
+              type="date" 
+              value={filterStartDate} 
+              onChange={e => setFilterStartDate(e.target.value)}
+              className="mb-0 w-40"
+          />
+          <Input 
+              label="Filtrar hasta" 
+              type="date" 
+              value={filterEndDate} 
+              onChange={e => setFilterEndDate(e.target.value)}
+              className="mb-0 w-40"
+          />
+          <div className="text-slate-400 text-sm pb-2">
+              Mostrando {filteredLeagues.length} ligas
+          </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {leagues.map(league => (
+        {filteredLeagues.map(league => (
             <Card key={league.id} title={league.name} className="relative">
                  <Link to={`/league/${league.id}`} className="absolute top-4 right-4 text-emerald-400 hover:text-emerald-300 text-sm font-medium">
                     Gestionar Liga &rarr;
                 </Link>
                 <div className="mt-2 text-sm text-slate-400">
+                    <p>Creada el: <span className="text-white">{formatDate(league.createdAt)}</span></p>
                     <p>Participantes: <span className="text-white">{league.participantIds?.length || 0}</span></p>
                     <p>Torneos: <span className="text-white">{tournaments[league.id]?.length || 0}</span></p>
                 </div>
@@ -88,7 +149,7 @@ export const Leagues: React.FC = () => {
                 </div>
             </Card>
         ))}
-        {leagues.length === 0 && <p className="text-slate-400">No hay ligas creadas.</p>}
+        {filteredLeagues.length === 0 && <p className="text-slate-400">No hay ligas en este rango de fechas.</p>}
       </div>
     </div>
   );

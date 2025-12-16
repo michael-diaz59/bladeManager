@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { dbService } from '../services/db';
-import { Tournament, Participant, Match, Blade, SelectedBlade } from '../types';
+import { Tournament, Participant, Match, AppConfig, BalanceFormat, TournamentStructure } from '../types';
 import { Button, Card, Input, Select, Badge } from '../components/UI';
 
-// --- Algoritmo Round Robin (Método del Polígono/Berger) ---
-// Genera enfrentamientos divididos por "Jornadas" (Rounds)
 const generateRoundRobinSchedule = (ids: string[], tournamentId: string, leagueId?: string) => {
   if (ids.length < 2) return [];
   
   let players = [...ids];
-  // Si es impar, añadimos un "Bye" (descanso)
   if (players.length % 2 !== 0) {
     players.push('BYE');
   }
@@ -23,13 +20,11 @@ const generateRoundRobinSchedule = (ids: string[], tournamentId: string, leagueI
 
   for (let round = 0; round < numRounds; round++) {
     const roundLabel = `Jornada ${round + 1}`;
-    
     for (let i = 0; i < half; i++) {
       const p1 = players[i];
       const p2 = players[numPlayers - 1 - i];
 
       if (p1 !== 'BYE' && p2 !== 'BYE') {
-         // Crear match
          matchesToCreate.push({
              leagueId: leagueId,
              tournamentId: tournamentId,
@@ -37,8 +32,6 @@ const generateRoundRobinSchedule = (ids: string[], tournamentId: string, leagueI
              participant2Id: p2,
              participant1Score: 0,
              participant2Score: 0,
-             participant1Blades: [], // Se llenan después o se dejan vacíos
-             participant2Blades: [],
              winnerId: null,
              isPlayed: false,
              date: Date.now(),
@@ -47,19 +40,14 @@ const generateRoundRobinSchedule = (ids: string[], tournamentId: string, leagueI
          });
       }
     }
-
-    // Rotar array manteniendo el primero fijo (Algoritmo de Berger)
-    // [0, 1, 2, 3] -> [0, 3, 1, 2] -> [0, 2, 3, 1]
     players.splice(1, 0, players.pop()!);
   }
   
   return matchesToCreate;
 };
 
-// Helper para identificar un partido único (independiente del orden p1/p2)
 const getUniqueMatchKey = (p1: string, p2: string) => [p1, p2].sort().join('-');
 
-// Componente para una tarjeta de partido con edición de puntaje
 const MatchCard: React.FC<{ 
     match: Match; 
     p1?: Participant; 
@@ -83,6 +71,10 @@ const MatchCard: React.FC<{
     };
 
     const handleSave = () => {
+        if (s1 === s2) {
+            alert("Empates no permitidos.");
+            return;
+        }
         onUpdate(match.id, s1, s2);
         setIsDirty(false);
     };
@@ -141,15 +133,14 @@ const MatchCard: React.FC<{
     );
 };
 
-const getPlayoffOptions = () => ['Final', 'Semi Final', 'Quarter Final', 'Round of 16'];
-
 export const TournamentManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [allParticipants, setAllParticipants] = useState<Participant[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [blades, setBlades] = useState<Blade[]>([]);
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [balanceName, setBalanceName] = useState('');
   
   // UI States
   const [isAddPlayerModalOpen, setAddPlayerModalOpen] = useState(false);
@@ -175,16 +166,19 @@ export const TournamentManager: React.FC = () => {
 
     const m = await dbService.getMatchesByTournament(id);
     setMatches(m);
-    
-    const b = await dbService.getBlades();
-    setBlades(b);
+
+    const cfg = await dbService.getConfig();
+    setConfig(cfg);
+    if (cfg && t.balanceFormatId) {
+        const b = cfg.balanceFormats.find(f => f.id === t.balanceFormatId);
+        setBalanceName(b ? b.name : 'Desconocido');
+    }
   };
 
   const handleAddParticipant = async (pId: string) => {
     if (!tournament) return;
     const newPIds = [...tournament.participantIds, pId];
     await dbService.updateTournamentParticipants(tournament.id, newPIds);
-    setAddPlayerModalOpen(false);
     loadData();
   };
   
@@ -199,38 +193,82 @@ export const TournamentManager: React.FC = () => {
       }
   };
 
-  const handleGenerateSchedule = async () => {
-      if (!id) return;
+  // --- Dynamic Structure Logic ---
 
-      // 1. Fetch Fresh Data (Avoid Stale State)
-      const t = await dbService.getTournament(id);
-      if (!t) {
-          alert("Error: No se encontró el torneo.");
-          return;
+  const handleToggleGroupStage = async () => {
+      if (!tournament) return;
+      const hasGroups = tournament.structure !== 'Playoff Only';
+      const hasPlayoffs = tournament.structure !== 'Round Robin';
+
+      if (hasGroups) {
+          // Attempting to remove Groups
+          if (!hasPlayoffs) {
+              alert("Error: El torneo debe tener al menos una fase (no puedes quitar grupos si no hay Playoffs).");
+              return;
+          }
+          if (window.confirm("ADVERTENCIA: Se perderán los datos de los enfrentamientos registrados en la Fase de Grupos. ¿Estás seguro?")) {
+             // Remove Group matches and set to Playoff Only
+             const matchesToDelete = matches.filter(m => (!m.phase || m.phase === 'group')).map(m => m.id);
+             await dbService.updateTournamentStructure(tournament.id, 'Playoff Only', matchesToDelete);
+             loadData();
+          }
+      } else {
+          // Attempting to add Groups (from Playoff Only)
+          if (window.confirm("ADVERTENCIA: Al añadir Fase de Grupos a un torneo de Solo Playoffs, se ELIMINARÁN los registros del Playoff actual para reconstruirlo en base a los resultados de los robins. ¿Continuar?")) {
+              // Delete ALL matches (Playoffs included) because seeding changes
+              const matchesToDelete = matches.map(m => m.id);
+              await dbService.updateTournamentStructure(tournament.id, 'Round Robin + Playoffs', matchesToDelete);
+              loadData();
+          }
       }
+  };
+
+  const handleTogglePlayoffs = async () => {
+      if (!tournament) return;
+      const hasGroups = tournament.structure !== 'Playoff Only';
+      const hasPlayoffs = tournament.structure !== 'Round Robin';
+
+      if (hasPlayoffs) {
+          // Attempting to remove Playoffs
+          if (!hasGroups) {
+              alert("Error: El torneo debe tener al menos una fase (no puedes quitar Playoffs si no hay Grupos).");
+              return;
+          }
+          if (window.confirm("ADVERTENCIA: Se eliminará la fase de Playoffs y sus registros. ¿Estás seguro?")) {
+              const matchesToDelete = matches.filter(m => m.phase === 'playoff').map(m => m.id);
+              await dbService.updateTournamentStructure(tournament.id, 'Round Robin', matchesToDelete);
+              loadData();
+          }
+      } else {
+          // Attempting to add Playoffs (from Round Robin)
+          // No destructive action needed, just structure update
+          await dbService.updateTournamentStructure(tournament.id, 'Round Robin + Playoffs', []);
+          loadData();
+      }
+  };
+
+  // --- Scheduler Logic ---
+
+  const handleGenerateRoundRobin = async () => {
+      if (!id || !tournament) return;
       
       const currentMatches = await dbService.getMatchesByTournament(id);
       
-      // 2. Filter existing group matches
       const existingMatches = currentMatches.filter(m => !m.phase || m.phase === 'group');
       const hasPlayedMatches = existingMatches.some(m => m.isPlayed);
 
-      // 3. Validation
-      if (t.participantIds.length < 2) {
-          alert("Se necesitan al menos 2 participantes para generar enfrentamientos.");
+      if (tournament.participantIds.length < 2) {
+          alert("Se necesitan al menos 2 participantes.");
           return;
       }
 
-      // 4. Confirmation
       if (existingMatches.length > 0) {
           const message = hasPlayedMatches 
-            ? "Existen partidos en este torneo. Se conservarán los jugados y se regenerarán los no jugados para incluir a los nuevos participantes. ¿Estás seguro?"
-            : "Se eliminarán los partidos actuales y se creará un nuevo calendario. ¿Estás seguro?";
-            
+            ? "Existen partidos jugados. Se conservarán y se añadirán nuevos si es necesario. ¿Continuar?"
+            : "Se eliminarán los partidos actuales. ¿Continuar?";
           if(!window.confirm(message)) return;
       }
       
-      // 5. Delete Unplayed
       const playedMatches = existingMatches.filter(m => m.isPlayed);
       const unplayedMatches = existingMatches.filter(m => !m.isPlayed);
 
@@ -238,10 +276,7 @@ export const TournamentManager: React.FC = () => {
           await dbService.deleteMatches(unplayedMatches.map(m => m.id));
       }
 
-      // 6. Generate NEW full schedule for current participants
-      const idealSchedule = generateRoundRobinSchedule(t.participantIds, t.id, t.leagueId);
-
-      // 7. Filter: Only create matches that haven't been played yet
+      const idealSchedule = generateRoundRobinSchedule(tournament.participantIds, tournament.id, tournament.leagueId);
       const playedKeys = new Set(playedMatches.map(m => getUniqueMatchKey(m.participant1Id, m.participant2Id)));
       
       const matchesToCreate = idealSchedule.filter(newMatch => {
@@ -249,18 +284,12 @@ export const TournamentManager: React.FC = () => {
           return !playedKeys.has(key);
       });
 
-      // 8. Bulk Create & Feedback
       if (matchesToCreate.length > 0) {
           await dbService.bulkCreateMatches(matchesToCreate);
           await loadData();
-          setTimeout(() => alert("Calendario generado exitosamente."), 50);
       } else {
           await loadData();
-          if (unplayedMatches.length > 0) {
-             alert("Se han eliminado los partidos no jugados obsoletos. No se requirieron nuevos partidos.");
-          } else {
-             alert("El calendario está actualizado. No se requirieron nuevos partidos.");
-          }
+          alert("Calendario actualizado.");
       }
   };
 
@@ -271,17 +300,20 @@ export const TournamentManager: React.FC = () => {
 
   // --- Playoff Logic ---
   const calculateStandings = () => {
+      if (!config) return [];
+
       const stats: Record<string, { 
           id: string, 
           name: string, 
           played: number, 
           wins: number, 
+          points: number, 
           pointsFor: number, 
           pointsAgainst: number 
       }> = {};
 
       participants.forEach(p => { 
-          stats[p.id] = { id: p.id, name: p.name, played: 0, wins: 0, pointsFor: 0, pointsAgainst: 0 }; 
+          stats[p.id] = { id: p.id, name: p.name, played: 0, wins: 0, points: 0, pointsFor: 0, pointsAgainst: 0 }; 
       });
       
       matches.filter(m => m.phase === 'group' && m.isPlayed).forEach(m => {
@@ -289,20 +321,30 @@ export const TournamentManager: React.FC = () => {
               stats[m.participant1Id].played++;
               stats[m.participant1Id].pointsFor += (m.participant1Score || 0);
               stats[m.participant1Id].pointsAgainst += (m.participant2Score || 0);
-              if(m.winnerId === m.participant1Id) stats[m.participant1Id].wins++;
+              if(m.winnerId === m.participant1Id) {
+                  stats[m.participant1Id].wins++;
+                  stats[m.participant1Id].points += config.scoringSystem.win;
+              } else {
+                  stats[m.participant1Id].points += config.scoringSystem.loss;
+              }
           }
           if(stats[m.participant2Id]) {
               stats[m.participant2Id].played++;
               stats[m.participant2Id].pointsFor += (m.participant2Score || 0);
               stats[m.participant2Id].pointsAgainst += (m.participant1Score || 0);
-              if(m.winnerId === m.participant2Id) stats[m.participant2Id].wins++;
+              if(m.winnerId === m.participant2Id) {
+                  stats[m.participant2Id].wins++;
+                  stats[m.participant2Id].points += config.scoringSystem.win;
+              } else {
+                  stats[m.participant2Id].points += config.scoringSystem.loss;
+              }
           }
       });
 
       return Object.values(stats).sort((a, b) => {
+          if (b.points !== a.points) return b.points - a.points;
           if (b.wins !== a.wins) return b.wins - a.wins;
           if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
-          if (b.pointsAgainst !== a.pointsAgainst) return b.pointsAgainst - a.pointsAgainst;
           const diffA = a.pointsFor - a.pointsAgainst;
           const diffB = b.pointsFor - b.pointsAgainst;
           return diffB - diffA;
@@ -311,7 +353,20 @@ export const TournamentManager: React.FC = () => {
 
   const generatePlayoffs = async () => {
       if(!tournament || !playoffType) return;
-      const standings = calculateStandings();
+      if (!window.confirm("¿Generar Playoffs?")) return;
+
+      let qualifiers: {id: string}[] = [];
+
+      // Logic Split: Standings (Mixed) vs Direct (Playoff Only)
+      if (tournament.structure === 'Playoff Only') {
+          // Shuffle participants for random seeding if playoff only
+          qualifiers = [...participants].sort(() => Math.random() - 0.5).map(p => ({id: p.id}));
+      } else {
+          // Based on standings
+          const standings = calculateStandings();
+          qualifiers = standings;
+      }
+
       let topN = 0;
       switch(playoffType) {
           case 'Final': topN = 2; break;
@@ -320,22 +375,23 @@ export const TournamentManager: React.FC = () => {
           case 'Round of 16': topN = 16; break;
       }
 
-      if (standings.length < topN) {
-          alert(`No hay suficientes jugadores para ${playoffType}`);
+      if (qualifiers.length < topN) {
+          alert(`No hay suficientes participantes disponibles. Mínimo requerido: ${topN}.`);
           return;
       }
-      const qualifiers = standings.slice(0, topN);
+
+      // Take top N
+      const selected = qualifiers.slice(0, topN);
+      
       const newMatches: Omit<Match, 'id'>[] = [];
       for(let i=0; i < topN / 2; i++) {
           newMatches.push({
               leagueId: tournament.leagueId,
               tournamentId: tournament.id,
-              participant1Id: qualifiers[i].id,
-              participant2Id: qualifiers[topN - 1 - i].id,
+              participant1Id: selected[i].id,
+              participant2Id: selected[topN - 1 - i].id,
               participant1Score: 0,
               participant2Score: 0,
-              participant1Blades: [],
-              participant2Blades: [],
               winnerId: null,
               isPlayed: false,
               date: Date.now(),
@@ -347,10 +403,18 @@ export const TournamentManager: React.FC = () => {
       loadData();
   };
 
-  if (!tournament) return <div>Cargando...</div>;
+  if (!tournament || !config) return <div>Cargando...</div>;
 
   const standings = calculateStandings();
+  const numPotentialPlayers = tournament.structure === 'Playoff Only' ? participants.length : standings.length;
   
+  const validPlayoffOptions = [
+      { label: 'Final (Top 2)', value: 'Final', min: 2 },
+      { label: 'Semi Final (Top 4)', value: 'Semi Final', min: 4 },
+      { label: 'Quarter Final (Top 8)', value: 'Quarter Final', min: 8 },
+      { label: 'Round of 16 (Top 16)', value: 'Round of 16', min: 16 },
+  ].filter(opt => numPotentialPlayers >= opt.min);
+
   const matchesByRound = matches.reduce((acc, m) => {
       const label = m.roundLabel || (m.phase === 'playoff' ? 'Fase Final' : 'Otros');
       if(!acc[label]) acc[label] = [];
@@ -365,60 +429,97 @@ export const TournamentManager: React.FC = () => {
       return 0;
   });
 
+  const hasPlayoffsGenerated = matches.some(m => m.phase === 'playoff');
+  
+  const isRoundRobin = tournament.structure !== 'Playoff Only';
+  const isPlayoffEnabled = tournament.structure !== 'Round Robin';
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
             <h1 className="text-2xl font-bold text-white">{tournament.name}</h1>
             <div className="flex gap-2 mt-1">
-                <Badge>{tournament.format === 'Elimination' ? 'Round Robin' : tournament.format}</Badge> 
-                {tournament.hasPlayoffs && <Badge color="purple">Con Playoffs</Badge>}
+                <Badge>{tournament.structure}</Badge> 
+                <Badge color="blue">{balanceName}</Badge>
             </div>
         </div>
+        
+        {/* Structure Config Panel */}
+        <div className="bg-slate-800 p-2 rounded border border-slate-700 flex flex-wrap gap-4 items-center">
+            <span className="text-xs text-slate-400 font-bold uppercase">Configuración de Estructura:</span>
+            
+            <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                    type="checkbox" 
+                    checked={isRoundRobin} 
+                    onChange={handleToggleGroupStage}
+                    className="w-4 h-4 text-emerald-600 bg-slate-900 border-slate-600 rounded focus:ring-emerald-500"
+                />
+                <span className="text-sm text-slate-300">Fase de Grupos</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                    type="checkbox" 
+                    checked={isPlayoffEnabled}
+                    onChange={handleTogglePlayoffs}
+                    className="w-4 h-4 text-emerald-600 bg-slate-900 border-slate-600 rounded focus:ring-emerald-500"
+                />
+                <span className="text-sm text-slate-300">Fase Final (Playoffs)</span>
+            </label>
+        </div>
+
         <div className="flex gap-2">
-            <Button variant="secondary" onClick={handleGenerateSchedule}>Regenerar Enfrentamientos</Button>
+            {!hasPlayoffsGenerated && isRoundRobin && (
+                <Button variant="secondary" onClick={handleGenerateRoundRobin}>Regenerar Enfrentamientos</Button>
+            )}
             <Button onClick={() => setAddPlayerModalOpen(true)}>+ Añadir Participante</Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-               <Card title="Clasificación (Fase de Grupos)">
-                   <div className="overflow-x-auto">
-                       <table className="min-w-full text-left text-sm">
-                           <thead className="text-slate-400 border-b border-slate-700">
-                               <tr>
-                                   <th className="pb-2 px-2">Pos</th>
-                                   <th className="pb-2 px-2">Nombre</th>
-                                   <th className="pb-2 px-2 text-center">PJ</th>
-                                   <th className="pb-2 px-2 text-center">G</th>
-                                   <th className="pb-2 px-2 text-center" title="Puntos a Favor (Hechos)">PF</th>
-                                   <th className="pb-2 px-2 text-center" title="Puntos en Contra (Recibidos)">PC</th>
-                                   <th className="pb-2 px-2 text-center" title="Diferencia">Diff</th>
-                               </tr>
-                           </thead>
-                           <tbody className="text-white">
-                               {standings.map((s, idx) => (
-                                   <tr key={s.id} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/50">
-                                       <td className="py-3 px-2 text-slate-500">{idx + 1}</td>
-                                       <td className="py-3 px-2 font-medium">{s.name}</td>
-                                       <td className="py-3 px-2 text-center">{s.played}</td>
-                                       <td className="py-3 px-2 text-center text-emerald-400 font-bold">{s.wins}</td>
-                                       <td className="py-3 px-2 text-center text-slate-300">{s.pointsFor}</td>
-                                       <td className="py-3 px-2 text-center text-slate-300">{s.pointsAgainst}</td>
-                                       <td className="py-3 px-2 text-center text-slate-400">{s.pointsFor - s.pointsAgainst}</td>
-                                   </tr>
-                               ))}
-                           </tbody>
-                       </table>
-                   </div>
-               </Card>
+               {isRoundRobin && (
+                 <Card title="Clasificación (Fase de Grupos)">
+                     <div className="overflow-x-auto">
+                         <table className="min-w-full text-left text-sm">
+                             <thead className="text-slate-400 border-b border-slate-700">
+                                 <tr>
+                                     <th className="pb-2 px-2">Pos</th>
+                                     <th className="pb-2 px-2">Nombre</th>
+                                     <th className="pb-2 px-2 text-center text-emerald-400">Pts</th>
+                                     <th className="pb-2 px-2 text-center">PJ</th>
+                                     <th className="pb-2 px-2 text-center">G</th>
+                                     <th className="pb-2 px-2 text-center" title="Puntos a Favor">PF</th>
+                                     <th className="pb-2 px-2 text-center" title="Puntos en Contra">PC</th>
+                                     <th className="pb-2 px-2 text-center" title="Diferencia">Diff</th>
+                                 </tr>
+                             </thead>
+                             <tbody className="text-white">
+                                 {standings.map((s, idx) => (
+                                     <tr key={s.id} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/50">
+                                         <td className="py-3 px-2 text-slate-500">{idx + 1}</td>
+                                         <td className="py-3 px-2 font-medium">{s.name}</td>
+                                         <td className="py-3 px-2 text-center font-bold text-emerald-400 text-lg">{s.points}</td>
+                                         <td className="py-3 px-2 text-center">{s.played}</td>
+                                         <td className="py-3 px-2 text-center text-green-300">{s.wins}</td>
+                                         <td className="py-3 px-2 text-center text-slate-300">{s.pointsFor}</td>
+                                         <td className="py-3 px-2 text-center text-slate-300">{s.pointsAgainst}</td>
+                                         <td className="py-3 px-2 text-center text-slate-400">{s.pointsFor - s.pointsAgainst}</td>
+                                     </tr>
+                                 ))}
+                             </tbody>
+                         </table>
+                     </div>
+                 </Card>
+               )}
 
                <Card title="Enfrentamientos">
                    {matches.length === 0 && (
                        <div className="text-center py-4">
                            <p className="text-slate-400 mb-4">No hay enfrentamientos generados.</p>
-                           <Button onClick={handleGenerateSchedule}>Generar Calendario Round Robin</Button>
+                           {isRoundRobin && <Button onClick={handleGenerateRoundRobin}>Generar Calendario Round Robin</Button>}
                        </div>
                    )}
                    
@@ -438,24 +539,38 @@ export const TournamentManager: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-              {tournament.hasPlayoffs && (
+              {isPlayoffEnabled && (
                   <Card title="Fase Final (Playoffs)">
                       <div className="space-y-4">
-                          <Select 
-                            label="Estructura de Playoffs" 
-                            value={playoffType} 
-                            onChange={e => setPlayoffType(e.target.value)}
-                          >
-                              <option value="">Seleccionar Tipo...</option>
-                              {getPlayoffOptions().map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                          </Select>
-                          <Button 
-                            className="w-full" 
-                            disabled={!playoffType}
-                            onClick={generatePlayoffs}
-                          >
-                              Generar Cuadro Final
-                          </Button>
+                          {hasPlayoffsGenerated ? (
+                              <div className="p-3 bg-purple-900/30 rounded border border-purple-500/50 text-sm text-purple-200">
+                                  Playoffs generados. Ver enfrentamientos en la lista.
+                              </div>
+                          ) : (
+                              <>
+                                <Select 
+                                    label="Estructura de Playoffs" 
+                                    value={playoffType} 
+                                    onChange={e => setPlayoffType(e.target.value)}
+                                >
+                                    <option value="">Seleccionar Tipo...</option>
+                                    {validPlayoffOptions.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </Select>
+                                {numPotentialPlayers < 2 ? (
+                                    <p className="text-xs text-slate-500">Mínimo 2 participantes.</p>
+                                ) : (
+                                    <Button 
+                                        className="w-full" 
+                                        disabled={!playoffType}
+                                        onClick={generatePlayoffs}
+                                    >
+                                        Generar Cuadro Final
+                                    </Button>
+                                )}
+                              </>
+                          )}
                       </div>
                   </Card>
               )}

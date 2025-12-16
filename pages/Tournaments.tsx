@@ -1,51 +1,95 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { dbService } from '../services/db';
-import { Tournament, League } from '../types';
+import { Tournament, League, BalanceFormat, TournamentStructure } from '../types';
 import { Button, Card, Input, Select } from '../components/UI';
 
 export const Tournaments: React.FC = () => {
   const navigate = useNavigate();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [filteredTournaments, setFilteredTournaments] = useState<Tournament[]>([]);
   const [leagues, setLeagues] = useState<League[]>([]);
+  const [balanceFormats, setBalanceFormats] = useState<BalanceFormat[]>([]);
   
   // New Tournament Form
   const [tnName, setTnName] = useState('');
-  const [tnFormat, setTnFormat] = useState('Elimination');
-  const [tnPlayoffs, setTnPlayoffs] = useState(false);
-  const [tnLeagueId, setTnLeagueId] = useState(''); // Optional
+  const [tnStructure, setTnStructure] = useState<TournamentStructure | ''>('');
+  const [tnBalanceId, setTnBalanceId] = useState('');
+  const [tnLeagueId, setTnLeagueId] = useState('');
+
+  // Date Filters
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
 
   const loadData = async () => {
-    // Get all tournaments (both standalone and league-linked)
     const tData = await dbService.getTournaments();
-    setTournaments(tData);
+    const sortedT = tData.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    setTournaments(sortedT);
+    setFilteredTournaments(sortedT);
+
     const lData = await dbService.getLeagues();
     setLeagues(lData);
+
+    const config = await dbService.getConfig();
+    setBalanceFormats(config.balanceFormats);
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
+  // Filter Logic
+  useEffect(() => {
+    let result = tournaments;
+    if (filterStartDate) {
+        const start = new Date(filterStartDate).getTime();
+        result = result.filter(t => (t.createdAt || 0) >= start);
+    }
+    if (filterEndDate) {
+        const end = new Date(filterEndDate);
+        end.setHours(23, 59, 59, 999);
+        const endTime = end.getTime();
+        result = result.filter(t => (t.createdAt || 0) <= endTime);
+    }
+    setFilteredTournaments(result);
+  }, [filterStartDate, filterEndDate, tournaments]);
+
   const handleCreateTournament = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tnName.trim()) return;
+    if (!tnStructure) return alert("Debes seleccionar una estructura de torneo.");
+    if (!tnBalanceId) return alert("Debes seleccionar un formato de balance.");
 
     const tId = await dbService.createTournament({
         name: tnName.trim(),
-        leagueId: tnLeagueId || undefined, // Send undefined if empty string
-        format: tnFormat,
+        leagueId: tnLeagueId || undefined,
+        structure: tnStructure as TournamentStructure,
+        balanceFormatId: tnBalanceId,
         participantIds: [],
-        hasPlayoffs: tnPlayoffs,
         status: 'Draft'
     });
-    navigate(`/tournament/${tId}`);
+
+    if (tId) {
+        navigate(`/tournament/${tId}`);
+    } else {
+        alert("Ya existe un Torneo con ese nombre.");
+    }
   };
 
   const getLeagueName = (id?: string) => {
       if (!id) return 'Independiente';
       const league = leagues.find(l => l.id === id);
       return league ? league.name : 'Independiente';
+  };
+
+  const getBalanceName = (id: string) => {
+      const b = balanceFormats.find(f => f.id === id);
+      return b ? b.name : 'Desc.';
+  };
+
+  const formatDate = (timestamp?: number) => {
+    if (!timestamp) return 'Fecha desconocida';
+    return new Date(timestamp).toLocaleDateString();
   };
 
   return (
@@ -71,34 +115,57 @@ export const Tournaments: React.FC = () => {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                <Select label="Formato" value={tnFormat} onChange={e => setTnFormat(e.target.value)}>
-                    <option value="Elimination">Fase de Grupos (Round Robin)</option>
+                <Select label="Estructura del Torneo" value={tnStructure} onChange={e => setTnStructure(e.target.value as TournamentStructure)}>
+                    <option value="">-- Seleccionar Estructura --</option>
+                    <option value="Round Robin">Round Robin (Solo Fase de Grupos)</option>
+                    <option value="Playoff Only">Solo Playoffs (Eliminación Directa)</option>
+                    <option value="Round Robin + Playoffs">Ambas (Grupos + Playoffs)</option>
                 </Select>
-                <div className="flex items-center gap-2 mt-2">
-                    <input 
-                        type="checkbox" 
-                        id="playoffs" 
-                        checked={tnPlayoffs} 
-                        onChange={e => setTnPlayoffs(e.target.checked)}
-                        className="w-4 h-4 text-emerald-600 bg-slate-700 border-slate-600 rounded"
-                    />
-                    <label htmlFor="playoffs" className="text-sm font-medium text-slate-300">¿Incluir Fase de Playoffs?</label>
-                </div>
+                
+                <Select label="Formato de Balance" value={tnBalanceId} onChange={e => setTnBalanceId(e.target.value)}>
+                    <option value="">-- Seleccionar Balance --</option>
+                    {balanceFormats.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </Select>
             </div>
 
-            <Button type="submit">Crear Torneo</Button>
+            <Button type="submit" disabled={balanceFormats.length === 0}>Crear Torneo</Button>
+            {balanceFormats.length === 0 && <p className="text-red-400 text-xs mt-1">Ve a Configuración para añadir formatos de balance.</p>}
         </form>
       </Card>
 
+      <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-wrap gap-4 items-end">
+          <Input 
+              label="Filtrar desde" 
+              type="date" 
+              value={filterStartDate} 
+              onChange={e => setFilterStartDate(e.target.value)}
+              className="mb-0 w-40"
+          />
+          <Input 
+              label="Filtrar hasta" 
+              type="date" 
+              value={filterEndDate} 
+              onChange={e => setFilterEndDate(e.target.value)}
+              className="mb-0 w-40"
+          />
+          <div className="text-slate-400 text-sm pb-2">
+              Mostrando {filteredTournaments.length} torneos
+          </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-6">
-        {tournaments.length === 0 && <p className="text-slate-400">No hay torneos registrados.</p>}
-        {tournaments.map(t => (
+        {filteredTournaments.length === 0 && <p className="text-slate-400">No hay torneos en este rango de fechas.</p>}
+        {filteredTournaments.map(t => (
             <Card key={t.id} className="relative flex justify-between items-center">
                 <div>
-                    <h3 className="text-lg font-bold text-white">{t.name}</h3>
+                    <h3 className="text-lg font-bold text-white">
+                        {t.name}
+                        <span className="ml-2 text-xs font-normal text-slate-400">({formatDate(t.createdAt)})</span>
+                    </h3>
                     <p className="text-sm text-slate-400">
                         Liga: <span className="text-emerald-400">{getLeagueName(t.leagueId)}</span> &bull; 
-                        Formato: {t.format === 'Elimination' ? 'Round Robin' : t.format} {t.hasPlayoffs ? '+ Playoffs' : ''}
+                        Estilo: {t.structure} &bull; 
+                        Balance: <span className="text-blue-400">{getBalanceName(t.balanceFormatId)}</span>
                     </p>
                     <p className="text-xs text-slate-500 mt-1">Participantes: {t.participantIds.length}</p>
                 </div>

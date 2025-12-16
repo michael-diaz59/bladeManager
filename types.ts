@@ -1,8 +1,3 @@
-export interface Blade {
-  id: string;
-  name: string;
-  tier: string;
-}
 
 export interface Participant {
   id: string;
@@ -12,21 +7,14 @@ export interface Participant {
   wins: number;
 }
 
-export interface SelectedBlade {
-  bladeId: string;
-  name: string;
-}
-
 export interface Match {
   id: string;
   leagueId?: string;
   tournamentId?: string;
   participant1Id: string;
   participant2Id: string;
-  participant1Score?: number; // New field
-  participant2Score?: number; // New field
-  participant1Blades: SelectedBlade[];
-  participant2Blades: SelectedBlade[];
+  participant1Score?: number;
+  participant2Score?: number;
   winnerId: string | null;
   isPlayed: boolean;
   date: number;
@@ -34,15 +22,18 @@ export interface Match {
   roundLabel?: string;
 }
 
+export type TournamentStructure = 'Round Robin' | 'Playoff Only' | 'Round Robin + Playoffs';
+
 export interface Tournament {
   id: string;
   name: string;
   leagueId?: string;
-  format: string;
+  structure: TournamentStructure; // Replaces old 'format' and 'hasPlayoffs'
+  balanceFormatId: string; // Reference to the Balance Format configuration
   participantIds: string[];
-  hasPlayoffs: boolean;
   playoffType?: 'Final' | 'Semi Final' | 'Quarter Final' | 'Round of 16';
   status: 'Draft' | 'Active' | 'Completed';
+  createdAt: number;
 }
 
 export interface League {
@@ -50,12 +41,33 @@ export interface League {
   name: string;
   participantIds: string[];
   tournamentIds: string[];
+  createdAt: number;
+}
+
+export interface Blade {
+  id: string;
+  name: string;
+  tier: string;
+}
+
+export interface BalanceFormat {
+  id: string;
+  name: string;
+}
+
+export interface AppConfig {
+  balanceFormats: BalanceFormat[]; // Replaces 'formats' string array
+  scoringSystem: {
+    win: number;
+    loss: number;
+  };
 }
 
 export interface DatabaseSchema {
-  blades: Record<string, Blade>;
   participants: Record<string, Participant>;
   leagues: Record<string, League>;
   tournaments: Record<string, Tournament>;
   matches: Record<string, Match>;
+  blades: Record<string, Blade>;
+  config: AppConfig;
 }

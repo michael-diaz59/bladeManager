@@ -1,48 +1,52 @@
-import { Blade, League, Match, Participant, Tournament, DatabaseSchema } from '../types';
-
-// ==========================================
-// CONFIGURACIÓN DE FIREBASE (Descomentar para usar)
-// ==========================================
-/*
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, push, onValue, update, get, child, remove } from "firebase/database";
-
-const firebaseConfig = {
-  // YOUR FIREBASE CONFIG HERE
-  apiKey: "...",
-  authDomain: "...",
-  databaseURL: "...",
-  projectId: "...",
-  storageBucket: "...",
-  messagingSenderId: "...",
-  appId: "..."
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-*/
-
-// ==========================================
-// MOCK LOCAL STORAGE (Para Demo)
-// ==========================================
+import { League, Match, Participant, Tournament, DatabaseSchema, Blade, AppConfig, BalanceFormat, TournamentStructure } from '../types';
 
 const STORAGE_KEY = 'blade_manager_db';
+
+const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const getLocalDB = (): DatabaseSchema => {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (!stored) {
-    const initial: DatabaseSchema = { blades: {}, participants: {}, leagues: {}, tournaments: {}, matches: {} };
+    // Initialize with default balance formats
+    const defaultBalanceId = generateId();
+    const initial: DatabaseSchema = { 
+        participants: {}, 
+        leagues: {}, 
+        tournaments: {}, 
+        matches: {},
+        blades: {},
+        config: {
+            balanceFormats: [
+              { id: defaultBalanceId, name: 'Estándar' }
+            ],
+            scoringSystem: { win: 1, loss: 0 }
+        }
+    };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
     return initial;
   }
-  return JSON.parse(stored);
+  const db = JSON.parse(stored);
+  
+  // Migrations
+  if (!db.blades) db.blades = {};
+  if (!db.config) {
+      db.config = {
+          balanceFormats: [],
+          scoringSystem: { win: 1, loss: 0 }
+      };
+  }
+  // Migrate old 'formats' to 'balanceFormats' if necessary
+  if ((db.config as any).formats) {
+      db.config.balanceFormats = ((db.config as any).formats as string[]).map(f => ({ id: generateId(), name: f }));
+      delete (db.config as any).formats;
+  }
+  
+  return db;
 };
 
 const saveLocalDB = (data: DatabaseSchema) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 };
-
-const generateId = () => Math.random().toString(36).substr(2, 9);
 
 // --- Internal Helper for Stats ---
 const recalculateParticipantStats = (participantId: string) => {
@@ -70,17 +74,42 @@ const recalculateParticipantStats = (participantId: string) => {
 // SERVICE METHODS
 
 export const dbService = {
+  // --- Config ---
+  async getConfig(): Promise<AppConfig> {
+      const db = getLocalDB();
+      return db.config;
+  },
+
+  async updateConfig(newConfig: AppConfig): Promise<void> {
+      const db = getLocalDB();
+      db.config = newConfig;
+      saveLocalDB(db);
+  },
+
+  async addBalanceFormat(name: string): Promise<BalanceFormat> {
+      const db = getLocalDB();
+      const newFormat = { id: generateId(), name };
+      db.config.balanceFormats.push(newFormat);
+      saveLocalDB(db);
+      return newFormat;
+  },
+
   // --- Blades ---
   async getBlades(): Promise<Blade[]> {
     const db = getLocalDB();
-    return Object.values(db.blades);
+    return Object.values(db.blades || {});
   },
 
-  async addBlade(name: string, tier: string): Promise<void> {
+  async addBlade(name: string, tier: string): Promise<Blade | null> {
     const db = getLocalDB();
+    const exists = Object.values(db.blades).some(b => b.name.toLowerCase() === name.toLowerCase());
+    if (exists) return null;
+
     const id = generateId();
-    db.blades[id] = { id, name, tier };
+    const newBlade: Blade = { id, name, tier };
+    db.blades[id] = newBlade;
     saveLocalDB(db);
+    return newBlade;
   },
 
   // --- Participants ---
@@ -107,10 +136,19 @@ export const dbService = {
     return Object.values(db.leagues);
   },
 
-  async createLeague(name: string): Promise<string> {
+  async createLeague(name: string): Promise<string | null> {
     const db = getLocalDB();
+    const exists = Object.values(db.leagues).some(l => l.name.toLowerCase() === name.toLowerCase());
+    if (exists) return null;
+
     const id = generateId();
-    db.leagues[id] = { id, name, participantIds: [], tournamentIds: [] };
+    db.leagues[id] = { 
+        id, 
+        name, 
+        participantIds: [], 
+        tournamentIds: [],
+        createdAt: Date.now() 
+    };
     saveLocalDB(db);
     return id;
   },
@@ -130,12 +168,18 @@ export const dbService = {
     return db.tournaments[tournamentId] || null;
   },
 
-  async createTournament(data: Omit<Tournament, 'id'>): Promise<string> {
+  async createTournament(data: Omit<Tournament, 'id' | 'createdAt'>): Promise<string | null> {
     const db = getLocalDB();
+    const exists = Object.values(db.tournaments).some(t => t.name.toLowerCase() === data.name.toLowerCase());
+    if (exists) return null;
+
     const id = generateId();
-    db.tournaments[id] = { ...data, id };
+    db.tournaments[id] = { 
+        ...data, 
+        id, 
+        createdAt: Date.now() 
+    };
     
-    // Link to League if provided
     if (data.leagueId && db.leagues[data.leagueId]) {
       if (!db.leagues[data.leagueId].tournamentIds) db.leagues[data.leagueId].tournamentIds = [];
       db.leagues[data.leagueId].tournamentIds.push(id);
@@ -150,7 +194,6 @@ export const dbService = {
     if (db.tournaments[tournamentId]) {
       db.tournaments[tournamentId].participantIds = participantIds;
       
-      // Auto-add to League Rule (only if league exists)
       const leagueId = db.tournaments[tournamentId].leagueId;
       if (leagueId && db.leagues[leagueId]) {
         const currentLeagueParticipants = new Set(db.leagues[leagueId].participantIds || []);
@@ -161,10 +204,38 @@ export const dbService = {
     }
   },
 
+  async updateTournamentStructure(tournamentId: string, newStructure: TournamentStructure, matchesToDelete: string[]): Promise<void> {
+      const db = getLocalDB();
+      const t = db.tournaments[tournamentId];
+      if (!t) return;
+
+      // Update structure
+      t.structure = newStructure;
+
+      // Delete invalid matches
+      matchesToDelete.forEach(mId => {
+          if (db.matches[mId]) {
+              delete db.matches[mId];
+          }
+      });
+
+      saveLocalDB(db);
+  },
+
   // --- Matches ---
+  async getAllMatches(): Promise<Match[]> {
+      const db = getLocalDB();
+      return Object.values(db.matches);
+  },
+
   async getMatchesByTournament(tournamentId: string): Promise<Match[]> {
     const db = getLocalDB();
     return Object.values(db.matches).filter(m => m.tournamentId === tournamentId);
+  },
+
+  async getMatchesByLeague(leagueId: string): Promise<Match[]> {
+    const db = getLocalDB();
+    return Object.values(db.matches).filter(m => m.leagueId === leagueId);
   },
 
   async createMatch(matchData: Omit<Match, 'id'>): Promise<void> {
@@ -172,7 +243,6 @@ export const dbService = {
     const id = generateId();
     db.matches[id] = { ...matchData, id };
 
-    // Auto-add to League Logic (if linked to a league)
     const leagueId = matchData.leagueId;
     if (leagueId && db.leagues[leagueId]) {
         const league = db.leagues[leagueId];
@@ -184,7 +254,6 @@ export const dbService = {
 
     saveLocalDB(db);
 
-    // If the match is created as 'played' (Quick Match), update stats immediately
     if (matchData.isPlayed) {
         recalculateParticipantStats(matchData.participant1Id);
         recalculateParticipantStats(matchData.participant2Id);
@@ -207,7 +276,6 @@ export const dbService = {
 
     saveLocalDB(db);
 
-    // Update Stats for both participants
     recalculateParticipantStats(match.participant1Id);
     recalculateParticipantStats(match.participant2Id);
   },
